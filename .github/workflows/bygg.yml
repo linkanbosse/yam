@@ -1,0 +1,42 @@
+name: Bygg DLL
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hitta projektet
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Recurse -Filter *.zip | Select-Object -First 1
+          if ($zip) {
+            Write-Host "Packar upp $($zip.FullName)"
+            Expand-Archive -Path $zip.FullName -DestinationPath work
+          }
+          $cm = Get-ChildItem -Recurse -Filter CMakeLists.txt |
+                Where-Object { Select-String -Path $_.FullName -Pattern 'project\(YimMenuV2' -Quiet } |
+                Select-Object -First 1
+          if (-not $cm) { throw "Hittade inte projektet (CMakeLists.txt saknas)" }
+          Write-Host "Projektet ligger i $($cm.DirectoryName)"
+          "PROJ=$($cm.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Förbered kompilator
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Förbered projekt
+        shell: pwsh
+        run: cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo -S "$env:PROJ" -B "$env:PROJ/build" -G Ninja
+
+      - name: Bygg DLL
+        shell: pwsh
+        run: cmake --build "$env:PROJ/build" --config RelWithDebInfo --target YimMenuV2
+
+      - name: Ladda upp DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: YimMenuV2-dll
+          path: ${{ env.PROJ }}/build/YimMenuV2.dll
